@@ -1,0 +1,26 @@
+{
+  "name": "Thợ Săn Điểm Vào",
+  "short_name": "Stock Hunter",
+  "description": "Phân tích kỹ thuật cổ phiếu Việt Nam - Tìm điểm vào lệnh tối ưu",
+  "start_url": "/app/",
+  "display": "standalone",
+  "background_color": "#0d1117",
+  "theme_color": "#58a6ff",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["finance", "productivity"],
+  "lang": "vi"
+}

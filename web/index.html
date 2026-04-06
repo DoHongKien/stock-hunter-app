@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0d1117" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Stock Hunter" />
+  <meta name="description" content="Phân tích kỹ thuật cổ phiếu Việt Nam - Tìm điểm vào lệnh tối ưu" />
+  <title>🏹 Thợ Săn Điểm Vào</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="icons/icon-192.png" />
+  <!-- TradingView Lightweight Charts -->
+  <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<!-- ── SPLASH SCREEN ────────────────────────────────────────── -->
+<div id="splash">
+  <div class="splash-inner">
+    <div class="splash-icon">🏹</div>
+    <h1 class="splash-title">THỢ SĂN ĐIỂM VÀO</h1>
+    <p class="splash-sub">Stock Technical Analyzer</p>
+    <div class="splash-loader"><div class="splash-bar"></div></div>
+  </div>
+</div>
+
+<!-- ── APP SHELL ─────────────────────────────────────────────── -->
+<div id="app" class="hidden">
+
+  <!-- HEADER -->
+  <header id="header">
+    <div class="header-left">
+      <span class="header-icon">🏹</span>
+      <div>
+        <div class="header-title">THỢ SĂN ĐIỂM VÀO</div>
+        <div class="header-sub" id="header-sub">Stock Technical Analyzer</div>
+      </div>
+    </div>
+    <div class="header-right">
+      <div id="api-badge" class="badge badge-off">API</div>
+    </div>
+  </header>
+
+  <!-- MAIN CONTENT (tab pages) -->
+  <main id="main">
+
+    <!-- ══ TAB: PHÂN TÍCH ════════════════════════════════════ -->
+    <section id="tab-analyze" class="tab-page active">
+
+      <!-- Search card -->
+      <div class="card search-card">
+        <div class="card-label">📊 PHÂN TÍCH CỔ PHIẾU</div>
+        <div class="search-row">
+          <input id="inp-ticker" type="text" class="ticker-input" placeholder="HPG, SSI, FPT..."
+                 autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false" />
+          <button id="btn-analyze" class="btn-primary" onclick="doAnalyze()">
+            <span class="btn-icon">🔍</span>
+          </button>
+        </div>
+        <div class="date-row">
+          <div class="date-group">
+            <label class="date-label">Từ ngày</label>
+            <input id="inp-from" type="date" class="date-input" />
+          </div>
+          <div class="date-group">
+            <label class="date-label">Đến ngày</label>
+            <input id="inp-to" type="date" class="date-input" />
+          </div>
+          <button class="btn-ghost" onclick="setRange(182)">6T</button>
+          <button class="btn-ghost" onclick="setRange(365)">1N</button>
+        </div>
+      </div>
+
+      <!-- Loading indicator -->
+      <div id="analyze-loading" class="loading-card hidden">
+        <div class="spinner"></div>
+        <span>Đang phân tích <span id="loading-ticker"></span>...</span>
+      </div>
+
+      <!-- Error -->
+      <div id="analyze-error" class="error-card hidden"></div>
+
+      <!-- Results -->
+      <div id="analyze-results" class="hidden">
+
+        <!-- Signal banner -->
+        <div id="signal-banner" class="signal-banner">
+          <div id="signal-icon" class="signal-icon"></div>
+          <div class="signal-info">
+            <div id="signal-name" class="signal-name"></div>
+            <div id="signal-desc" class="signal-desc"></div>
+          </div>
+        </div>
+
+        <!-- Price row -->
+        <div class="metrics-grid">
+          <div class="metric-card">
+            <div class="metric-label">Giá đóng cửa</div>
+            <div id="m-close" class="metric-value accent"></div>
+            <div id="m-pct" class="metric-sub"></div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Hỗ trợ gần nhất</div>
+            <div id="m-support" class="metric-value green"></div>
+            <div id="m-support-pct" class="metric-sub"></div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Kháng cự gần nhất</div>
+            <div id="m-resistance" class="metric-value red"></div>
+            <div id="m-resistance-pct" class="metric-sub"></div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Risk / Reward</div>
+            <div id="m-rr" class="metric-value"></div>
+            <div id="m-rr-sub" class="metric-sub"></div>
+          </div>
+        </div>
+
+        <!-- Technical indicators -->
+        <div class="card">
+          <div class="card-label">📐 CHỈ SỐ KỸ THUẬT</div>
+          <div class="indicator-list">
+            <div class="indicator-row">
+              <span class="ind-name">RSI (14)</span>
+              <div class="ind-bar-wrap">
+                <div id="rsi-bar" class="ind-bar"></div>
+              </div>
+              <span id="rsi-val" class="ind-val mono"></span>
+            </div>
+            <div class="indicator-row">
+              <span class="ind-name">MACD Hist</span>
+              <div class="ind-bar-wrap">
+                <div id="macd-bar" class="ind-bar"></div>
+              </div>
+              <span id="macd-val" class="ind-val mono"></span>
+            </div>
+            <div class="indicator-row">
+              <span class="ind-name">Bollinger %B</span>
+              <div class="ind-bar-wrap">
+                <div id="bb-bar" class="ind-bar"></div>
+              </div>
+              <span id="bb-val" class="ind-val mono"></span>
+            </div>
+            <div class="indicator-row">
+              <span class="ind-name">Volume / MA20</span>
+              <div class="ind-bar-wrap">
+                <div id="vol-bar" class="ind-bar"></div>
+              </div>
+              <span id="vol-val" class="ind-val mono"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Trading Plan card -->
+        <div class="card plan-card">
+          <div class="card-label">🎯 KẾ HOẠCH GIAO DỊCH</div>
+          <div class="plan-grid">
+            <div class="plan-item">
+              <div class="plan-label">Entry Zone</div>
+              <div id="plan-entry" class="plan-price accent"></div>
+            </div>
+            <div class="plan-item">
+              <div class="plan-label">Stop Loss 🛑</div>
+              <div id="plan-sl" class="plan-price red"></div>
+            </div>
+            <div class="plan-item">
+              <div class="plan-label">Take Profit 💰</div>
+              <div id="plan-tp" class="plan-price green"></div>
+            </div>
+          </div>
+          <div id="plan-rr-note" class="plan-rr-note"></div>
+          <!-- Nút Telegram -->
+          <button id="btn-telegram" class="btn-telegram" onclick="sendTelegram()">
+            📱 Gửi phân tích về Telegram
+          </button>
+        </div>
+
+        <!-- Chart -->
+        <div class="card chart-card">
+          <div class="chart-header">
+            <div class="card-label" style="margin:0">📈 BIỂU ĐỒ NẾN NHẬT</div>
+            <div class="chart-type-btns">
+              <button class="ct-btn active" onclick="setChartType('candlestick',this)">Nến</button>
+              <button class="ct-btn" onclick="setChartType('line',this)">Line</button>
+            </div>
+          </div>
+          <div id="chart-container"></div>
+        </div>
+
+        <!-- Recent sessions table -->
+        <div class="card">
+          <div class="card-label">📋 PHIÊN GIAO DỊCH GẦN ĐÂY</div>
+          <div class="table-wrap">
+            <table id="sessions-table" class="sessions-table">
+              <thead>
+                <tr>
+                  <th>Ngày</th>
+                  <th>Đóng</th>
+                  <th>%</th>
+                  <th>Volume</th>
+                </tr>
+              </thead>
+              <tbody id="sessions-body"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Add to portfolio shortcut -->
+        <div class="card">
+          <div class="card-label">➕ THÊM VÀO DANH MỤC</div>
+          <div class="quick-add-grid">
+            <div class="qa-group">
+              <label class="qa-label">Giá vào</label>
+              <input id="qa-price" type="number" class="qa-input" placeholder="0" />
+            </div>
+            <div class="qa-group">
+              <label class="qa-label">Số CP</label>
+              <input id="qa-qty" type="number" class="qa-input" placeholder="100" />
+            </div>
+            <div class="qa-group">
+              <label class="qa-label">Ghi chú</label>
+              <input id="qa-note" type="text" class="qa-input" placeholder="..." />
+            </div>
+          </div>
+          <button class="btn-add-portfolio" onclick="quickAddPortfolio()">
+            ＋ Thêm vào Danh Mục
+          </button>
+        </div>
+
+      </div><!-- /analyze-results -->
+    </section>
+
+    <!-- ══ TAB: DANH MỤC ═════════════════════════════════════ -->
+    <section id="tab-portfolio" class="tab-page">
+      <div class="card">
+        <div class="card-label">📁 DANH MỤC CỦA TÔI</div>
+        <button class="btn-refresh" onclick="loadPortfolio()">🔄 Cập nhật giá</button>
+      </div>
+
+      <div id="portfolio-loading" class="loading-card hidden">
+        <div class="spinner"></div>
+        <span>Đang cập nhật giá...</span>
+      </div>
+
+      <div id="portfolio-empty" class="empty-state hidden">
+        <div class="empty-icon">📂</div>
+        <div class="empty-text">Danh mục trống</div>
+        <div class="empty-sub">Thêm cổ phiếu từ tab Phân tích</div>
+      </div>
+
+      <div id="portfolio-list"></div>
+
+      <!-- Add manual form -->
+      <div class="card add-form-card">
+        <div class="card-label">➕ NHẬP THỦ CÔNG</div>
+        <div class="form-grid">
+          <input id="pf-ticker" type="text" class="form-input" placeholder="Mã CP (HPG...)" autocapitalize="characters" />
+          <input id="pf-date"   type="date"   class="form-input" />
+          <input id="pf-price"  type="number" class="form-input" placeholder="Giá vào (VNĐ)" />
+          <input id="pf-qty"    type="number" class="form-input" placeholder="Số cổ phiếu" />
+          <input id="pf-note"   type="text"   class="form-input form-note" placeholder="Ghi chú" />
+          <button class="btn-add-manual" onclick="addPortfolioManual()">＋ Thêm</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══ TAB: CÀI ĐẶT ══════════════════════════════════════ -->
+    <section id="tab-settings" class="tab-page">
+      <div class="card">
+        <div class="card-label">⚙️ CÀI ĐẶT</div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <div class="setting-name">API Server URL</div>
+            <div class="setting-desc">Địa chỉ FastAPI backend đang chạy</div>
+          </div>
+        </div>
+        <input id="cfg-api" type="url" class="form-input" placeholder="http://localhost:8000" />
+        <button class="btn-save-cfg" onclick="saveConfig()">💾 Lưu cài đặt</button>
+        <div id="cfg-status" class="cfg-status"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-label">📱 CÀI APP TRÊN ĐIỆN THOẠI</div>
+        <div class="install-steps">
+          <div class="step"><span class="step-num">1</span><span>Mở trang này trên Safari (iOS) hoặc Chrome (Android)</span></div>
+          <div class="step"><span class="step-num">2</span><span>Nhấn nút Chia sẻ (Share) → "Thêm vào Màn hình chính"</span></div>
+          <div class="step"><span class="step-num">3</span><span>App sẽ xuất hiện trên màn hình như ứng dụng bình thường</span></div>
+        </div>
+        <button id="btn-install" class="btn-install hidden" onclick="installPWA()">
+          📲 Cài đặt App ngay
+        </button>
+      </div>
+
+      <div class="card">
+        <div class="card-label">ℹ️ THÔNG TIN</div>
+        <div class="info-list">
+          <div class="info-row"><span>Phiên bản</span><span class="mono">1.0.0</span></div>
+          <div class="info-row"><span>Backend</span><span id="info-api" class="mono">—</span></div>
+          <div class="info-row"><span>Dữ liệu</span><span>Yahoo Finance</span></div>
+          <div class="info-row"><span>Biểu đồ</span><span>TradingView LW Charts</span></div>
+        </div>
+      </div>
+
+      <div class="disclaimer">
+        ⚠️ Thị trường chứng khoán luôn có rủi ro. Mọi phân tích chỉ mang tính tham khảo. Bạn tự chịu trách nhiệm với mọi quyết định đầu tư.
+      </div>
+    </section>
+
+  </main>
+
+  <!-- BOTTOM NAV -->
+  <nav id="bottom-nav">
+    <button class="nav-btn active" onclick="switchTab('analyze', this)" id="nav-analyze">
+      <span class="nav-icon">🔍</span>
+      <span class="nav-label">Phân tích</span>
+    </button>
+    <button class="nav-btn" onclick="switchTab('portfolio', this)" id="nav-portfolio">
+      <span class="nav-icon">📁</span>
+      <span class="nav-label">Danh mục</span>
+    </button>
+    <button class="nav-btn" onclick="switchTab('settings', this)" id="nav-settings">
+      <span class="nav-icon">⚙️</span>
+      <span class="nav-label">Cài đặt</span>
+    </button>
+  </nav>
+
+</div><!-- /app -->
+
+<script src="app.js"></script>
+</body>
+</html>
