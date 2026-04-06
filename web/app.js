@@ -11,7 +11,17 @@ if ("serviceWorker" in navigator) {
 
 // ── CONFIG ──────────────────────────────────────────────────────
 const CFG_KEY = "stockhunter_api";
+const PF_KEY  = "stockhunter_portfolio";           // ← lưu danh mục local
 let API_BASE = localStorage.getItem(CFG_KEY) || "http://localhost:8000";
+
+// ── PORTFOLIO localStorage HELPERS ──────────────────────────────
+function _loadPf() {
+  try { return JSON.parse(localStorage.getItem(PF_KEY) || "[]"); }
+  catch { return []; }
+}
+function _savePf(data) {
+  localStorage.setItem(PF_KEY, JSON.stringify(data));
+}
 
 // ── STATE ───────────────────────────────────────────────────────
 let currentTicker  = null;
@@ -417,8 +427,8 @@ async function sendTelegram() {
   }
 }
 
-// ── QUICK ADD PORTFOLIO ───────────────────────────────────────────
-async function quickAddPortfolio() {
+// ── QUICK ADD PORTFOLIO (localStorage) ───────────────────────────
+function quickAddPortfolio() {
   if (!currentTicker) { showToast("⚠️ Chưa có mã phân tích!"); return; }
   const price = parseFloat(document.getElementById("qa-price").value);
   const qty   = parseInt(document.getElementById("qa-qty").value) || 0;
@@ -426,25 +436,19 @@ async function quickAddPortfolio() {
 
   if (!price || price <= 0) { showToast("⚠️ Nhập giá vào hợp lệ!"); return; }
 
-  try {
-    await apiFetch("/api/portfolio", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        ticker:      currentTicker,
-        entry_date:  new Date().toLocaleDateString("vi-VN"),
-        entry_price: price,
-        quantity:    qty,
-        note,
-      }),
-    });
-    showToast(`✅ Đã thêm ${currentTicker} vào danh mục!`);
-    document.getElementById("qa-price").value = "";
-    document.getElementById("qa-qty").value   = "";
-    document.getElementById("qa-note").value  = "";
-  } catch (e) {
-    showToast(`❌ ${e.message}`);
-  }
+  const data = _loadPf();
+  data.push({
+    ticker:      currentTicker,
+    entry_date:  new Date().toLocaleDateString("vi-VN"),
+    entry_price: price,
+    quantity:    qty,
+    note,
+  });
+  _savePf(data);
+  showToast(`✅ Đã thêm ${currentTicker} vào danh mục!`);
+  document.getElementById("qa-price").value = "";
+  document.getElementById("qa-qty").value   = "";
+  document.getElementById("qa-note").value  = "";
 }
 
 // ══════════════════════════════════════════════════════════════════
@@ -458,66 +462,81 @@ async function loadPortfolio() {
   empty.classList.add("hidden");
   list.innerHTML = "";
 
-  try {
-    const items = await apiFetch("/api/portfolio/refresh");
+  const raw = _loadPf();
+  if (!raw || raw.length === 0) {
     loading.classList.add("hidden");
-
-    if (!items || items.length === 0) {
-      empty.classList.remove("hidden");
-      return;
-    }
-
-    items.forEach(item => {
-      const card = document.createElement("div");
-      card.className = "portfolio-item";
-
-      const pnl = item.pnl_pct;
-      const pnlCls = pnl == null ? "neutral" : pnl >= 0 ? "positive" : "negative";
-      const pnlTxt = pnl == null ? "—" : `${pnl >= 0 ? "▲" : "▼"} ${Math.abs(pnl).toFixed(2)}%`;
-      const amtTxt = item.pnl_amount != null
-        ? `${item.pnl_amount >= 0 ? "+" : ""}${fmtPrice(item.pnl_amount)}đ`
-        : "";
-
-      card.innerHTML = `
-        <div class="pf-header">
-          <div>
-            <div class="pf-ticker">${item.ticker}</div>
-            <div class="pf-date">${item.entry_date}</div>
-          </div>
-          <div class="pf-pnl">
-            <div class="pf-pnl-pct ${pnlCls}">${pnlTxt}</div>
-            <div class="pf-pnl-amount">${amtTxt}</div>
-          </div>
-        </div>
-        <div class="pf-details">
-          <div class="pf-detail-item">
-            <div class="pf-detail-label">Giá vào</div>
-            <div class="pf-detail-val">${fmtPrice(item.entry_price)}</div>
-          </div>
-          <div class="pf-detail-item">
-            <div class="pf-detail-label">Giá hiện tại</div>
-            <div class="pf-detail-val ${pnlCls}">${item.current_price ? fmtPrice(item.current_price) : "—"}</div>
-          </div>
-          <div class="pf-detail-item">
-            <div class="pf-detail-label">Số CP</div>
-            <div class="pf-detail-val">${item.quantity.toLocaleString()}</div>
-          </div>
-        </div>
-        <div class="pf-footer">
-          <span class="pf-note">${item.note || ""}</span>
-          <div>
-            <button class="btn-analyze-pf" onclick="analyzePf('${item.ticker}')">🔍</button>
-            <button class="btn-delete" onclick="deletePortfolio(${item.index}, this)">🗑</button>
-          </div>
-        </div>
-      `;
-      list.appendChild(card);
-    });
-  } catch (e) {
-    loading.classList.add("hidden");
-    showToast(`❌ ${e.message}`);
+    empty.classList.remove("hidden");
+    return;
   }
+
+  // Lấy giá hiện tại từ API (song song)
+  const items = await Promise.all(raw.map(async (pos, i) => {
+    try {
+      const d = await apiFetch(`/api/price/${pos.ticker}`);
+      const close = d.price;
+      const pnl   = (close - pos.entry_price) / pos.entry_price * 100;
+      return {
+        ...pos, index: i,
+        current_price: round2(close),
+        pnl_pct:       round2(pnl),
+        pnl_amount:    Math.round((close - pos.entry_price) * pos.quantity),
+      };
+    } catch {
+      return { ...pos, index: i, current_price: null, pnl_pct: null, pnl_amount: null };
+    }
+  }));
+
+  loading.classList.add("hidden");
+
+  items.forEach(item => {
+    const card = document.createElement("div");
+    card.className = "portfolio-item";
+
+    const pnl    = item.pnl_pct;
+    const pnlCls = pnl == null ? "neutral" : pnl >= 0 ? "positive" : "negative";
+    const pnlTxt = pnl == null ? "—" : `${pnl >= 0 ? "▲" : "▼"} ${Math.abs(pnl).toFixed(2)}%`;
+    const amtTxt = item.pnl_amount != null
+      ? `${item.pnl_amount >= 0 ? "+" : ""}${fmtPrice(item.pnl_amount)}đ`
+      : "";
+
+    card.innerHTML = `
+      <div class="pf-header">
+        <div>
+          <div class="pf-ticker">${item.ticker}</div>
+          <div class="pf-date">${item.entry_date}</div>
+        </div>
+        <div class="pf-pnl">
+          <div class="pf-pnl-pct ${pnlCls}">${pnlTxt}</div>
+          <div class="pf-pnl-amount">${amtTxt}</div>
+        </div>
+      </div>
+      <div class="pf-details">
+        <div class="pf-detail-item">
+          <div class="pf-detail-label">Giá vào</div>
+          <div class="pf-detail-val">${fmtPrice(item.entry_price)}</div>
+        </div>
+        <div class="pf-detail-item">
+          <div class="pf-detail-label">Giá hiện tại</div>
+          <div class="pf-detail-val ${pnlCls}">${item.current_price ? fmtPrice(item.current_price) : "—"}</div>
+        </div>
+        <div class="pf-detail-item">
+          <div class="pf-detail-label">Số CP</div>
+          <div class="pf-detail-val">${item.quantity.toLocaleString()}</div>
+        </div>
+      </div>
+      <div class="pf-footer">
+        <span class="pf-note">${item.note || ""}</span>
+        <div>
+          <button class="btn-analyze-pf" onclick="analyzePf('${item.ticker}')">🔍</button>
+          <button class="btn-delete" onclick="deletePortfolio(${item.index})">🗑</button>
+        </div>
+      </div>
+    `;
+    list.appendChild(card);
+  });
 }
+
+function round2(v) { return Math.round(v * 100) / 100; }
 
 function analyzePf(ticker) {
   document.getElementById("inp-ticker").value = ticker;
@@ -525,17 +544,17 @@ function analyzePf(ticker) {
   doAnalyze();
 }
 
-async function deletePortfolio(index, btn) {
-  try {
-    await apiFetch(`/api/portfolio/${index}`, { method: "DELETE" });
-    showToast("🗑 Đã xóa vị thế");
-    loadPortfolio();
-  } catch (e) {
-    showToast(`❌ ${e.message}`);
-  }
+function deletePortfolio(index) {
+  const data = _loadPf();
+  if (index < 0 || index >= data.length) return;
+  const ticker = data[index].ticker;
+  data.splice(index, 1);
+  _savePf(data);
+  showToast(`🗑 Đã xóa ${ticker}`);
+  loadPortfolio();
 }
 
-async function addPortfolioManual() {
+function addPortfolioManual() {
   const ticker = document.getElementById("pf-ticker").value.trim().toUpperCase();
   const date   = document.getElementById("pf-date").value;
   const price  = parseFloat(document.getElementById("pf-price").value);
@@ -550,21 +569,15 @@ async function addPortfolioManual() {
     return `${d}/${m}/${y}`;
   })() : new Date().toLocaleDateString("vi-VN");
 
-  try {
-    await apiFetch("/api/portfolio", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ticker, entry_date: fmtDate, entry_price: price, quantity: qty, note }),
-    });
-    showToast(`✅ Đã thêm ${ticker}!`);
-    document.getElementById("pf-ticker").value = "";
-    document.getElementById("pf-price").value  = "";
-    document.getElementById("pf-qty").value    = "";
-    document.getElementById("pf-note").value   = "";
-    loadPortfolio();
-  } catch (e) {
-    showToast(`❌ ${e.message}`);
-  }
+  const data = _loadPf();
+  data.push({ ticker, entry_date: fmtDate, entry_price: price, quantity: qty, note });
+  _savePf(data);
+  showToast(`✅ Đã thêm ${ticker}!`);
+  document.getElementById("pf-ticker").value = "";
+  document.getElementById("pf-price").value  = "";
+  document.getElementById("pf-qty").value    = "";
+  document.getElementById("pf-note").value   = "";
+  loadPortfolio();
 }
 
 // ══════════════════════════════════════════════════════════════════

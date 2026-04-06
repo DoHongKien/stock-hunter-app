@@ -357,7 +357,24 @@ def chart_data(
     return {"ticker": raw, "candles": candles}
 
 
-# ── 3. PORTFOLIO CRUD ────────────────────────────────────────────────
+# ── 3. GIÁ HIỆN TẠI (dùng cho portfolio localStorage) ─────────────────────
+@app.get("/api/price/{ticker}")
+def get_price(ticker: str):
+    raw = ticker.upper().strip()
+    sym = f"{raw}.VN" if not raw.endswith(".VN") else raw
+    try:
+        hist = yf.Ticker(sym).history(period="5d")
+        if hist.empty:
+            raise HTTPException(404, f"Không có dữ liệu cho '{raw}'")
+        close = float(hist["Close"].iloc[-1])
+        return {"ticker": raw, "price": round(close, 2)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(500, f"Lỗi: {e}")
+
+
+# ── 4. PORTFOLIO CRUD ──────────────────────────────────────────────
 @app.get("/api/portfolio")
 def get_portfolio():
     return _load_portfolio()
