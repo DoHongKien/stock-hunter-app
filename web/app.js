@@ -469,22 +469,25 @@ async function loadPortfolio() {
     return;
   }
 
-  // Lấy giá hiện tại từ API (song song)
-  const items = await Promise.all(raw.map(async (pos, i) => {
-    try {
-      const d = await apiFetch(`/api/price/${pos.ticker}`);
-      const close = d.price;
-      const pnl   = (close - pos.entry_price) / pos.entry_price * 100;
-      return {
-        ...pos, index: i,
-        current_price: round2(close),
-        pnl_pct:       round2(pnl),
-        pnl_amount:    Math.round((close - pos.entry_price) * pos.quantity),
-      };
-    } catch {
-      return { ...pos, index: i, current_price: null, pnl_pct: null, pnl_amount: null };
-    }
-  }));
+  // Lấy giá tất cả mã bằng 1 request batch duy nhất → tránh rate-limit
+  const tickerList = [...new Set(raw.map(p => p.ticker))].join(",");
+  let priceMap = {};
+  try {
+    priceMap = await apiFetch(`/api/prices?tickers=${tickerList}`);
+  } catch {
+    // Nếu batch lỗi, hiển thị danh mục không có giá
+  }
+
+  const items = raw.map((pos, i) => {
+    const close = priceMap[pos.ticker] ?? null;
+    const pnl   = close != null ? (close - pos.entry_price) / pos.entry_price * 100 : null;
+    return {
+      ...pos, index: i,
+      current_price: close,
+      pnl_pct:       pnl != null ? round2(pnl) : null,
+      pnl_amount:    pnl != null ? Math.round((close - pos.entry_price) * pos.quantity) : null,
+    };
+  });
 
   loading.classList.add("hidden");
 

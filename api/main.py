@@ -2,7 +2,7 @@
 Thợ Săn Điểm Vào — FastAPI Backend
 Cung cấp REST API cho PWA mobile app.
 """
-import sys, os, math, traceback
+import sys, os, math, traceback, time
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -47,6 +47,19 @@ except ImportError as e:
 
 # ── PORTFOLIO FILE (dùng chung với GUI) ─────────────────────────────
 PORTFOLIO_FILE = os.path.join(ROOT, "portfolio.json")
+
+# ── PRICE CACHE (tránh rate-limit Yahoo Finance) ─────────────────────
+_price_cache: dict = {}   # {"VNM": {"price": 73.2, "ts": 1234567890}}
+CACHE_TTL = 300           # 5 phút
+
+def _cached_price(ticker: str):
+    entry = _price_cache.get(ticker)
+    if entry and (time.time() - entry["ts"]) < CACHE_TTL:
+        return entry["price"]
+    return None
+
+def _set_cache(ticker: str, price: float):
+    _price_cache[ticker] = {"price": price, "ts": time.time()}
 
 app = FastAPI(title="Thợ Săn Điểm Vào API", version="1.0.0")
 
@@ -357,21 +370,72 @@ def chart_data(
     return {"ticker": raw, "candles": candles}
 
 
-# ── 3. GIÁ HIỆN TẠI (dùng cho portfolio localStorage) ─────────────────────
+# ── 3. GIÁ HIỆN TẠI (dùng cho portfolio localStorage) ───────────────
 @app.get("/api/price/{ticker}")
 def get_price(ticker: str):
+    """Lấy giá 1 mã (có cache 5 phút)."""
     raw = ticker.upper().strip()
+    cached = _cached_price(raw)
+    if cached is not None:
+        return {"ticker": raw, "price": cached}
     sym = f"{raw}.VN" if not raw.endswith(".VN") else raw
     try:
         hist = yf.Ticker(sym).history(period="5d")
         if hist.empty:
             raise HTTPException(404, f"Không có dữ liệu cho '{raw}'")
-        close = float(hist["Close"].iloc[-1])
-        return {"ticker": raw, "price": round(close, 2)}
+        close = round(float(hist["Close"].iloc[-1]), 2)
+        _set_cache(raw, close)
+        return {"ticker": raw, "price": close}
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(500, f"Lỗi: {e}")
+
+
+@app.get("/api/prices")
+def get_prices_batch(tickers: str = Query(..., description="Danh sách mã, cách nhau bằng dấu phẩy")):
+    """Lấy giá nhiều mã cùng lúc bằng yf.download() — 1 request duy nhất."""
+    raws = [t.strip().upper() for t in tickers.split(",") if t.strip()]
+    if not raws:
+        raise HTTPException(400, "Thiếu tham số tickers")
+
+    result: dict = {}
+    need_fetch = []
+    for raw in raws:
+        cached = _cached_price(raw)
+        if cached is not None:
+            result[raw] = cached
+        else:
+            need_fetch.append(raw)
+
+    if need_fetch:
+        syms = [f"{r}.VN" if not r.endswith(".VN") else r for r in need_fetch]
+        try:
+            df = yf.download(
+                syms if len(syms) > 1 else syms[0],
+                period="5d",
+                auto_adjust=True,
+                progress=False,
+            )
+            if len(syms) == 1:
+                close = round(float(df["Close"].iloc[-1]), 2) if not df.empty else None
+                result[need_fetch[0]] = close
+                if close: _set_cache(need_fetch[0], close)
+            else:
+                close_df = df["Close"] if "Close" in df.columns else df.xs("Close", axis=1, level=0)
+                for raw, sym in zip(need_fetch, syms):
+                    try:
+                        price = round(float(close_df[sym].dropna().iloc[-1]), 2)
+                        result[raw] = price
+                        _set_cache(raw, price)
+                    except Exception:
+                        result[raw] = None
+        except Exception as e:
+            print(f"[WARN] yf.download lỗi: {e}")
+            for raw in need_fetch:
+                result[raw] = None
+
+    return result
 
 
 # ── 4. PORTFOLIO CRUD ──────────────────────────────────────────────
