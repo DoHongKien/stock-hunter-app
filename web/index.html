@@ -90,6 +90,15 @@
       <!-- Results -->
       <div id="analyze-results" class="hidden">
 
+        <!-- Company info bar (từ vnstock) -->
+        <div id="company-bar" class="card company-bar">
+          <div class="company-bar-left">
+            <div id="comp-name" class="comp-name">—</div>
+            <div id="comp-meta" class="comp-meta"></div>
+          </div>
+          <div id="comp-source" class="comp-source">vnstock · VCI</div>
+        </div>
+
         <!-- Signal banner -->
         <div id="signal-banner" class="signal-banner">
           <div id="signal-icon" class="signal-icon"></div>
@@ -99,13 +108,37 @@
           </div>
         </div>
 
-        <!-- Price row -->
-        <div class="metrics-grid">
-          <div class="metric-card">
-            <div class="metric-label">Giá đóng cửa</div>
-            <div id="m-close" class="metric-value accent"></div>
-            <div id="m-pct" class="metric-sub"></div>
+        <!-- OHLCV phiên gần nhất -->
+        <div class="card ohlcv-card">
+          <div class="card-label">💹 GIÁ PHIÊN GẦN NHẤT</div>
+          <div class="ohlcv-row">
+            <div class="ohlcv-item">
+              <div class="ohlcv-label">Mở cửa</div>
+              <div id="m-open" class="ohlcv-val"></div>
+            </div>
+            <div class="ohlcv-item">
+              <div class="ohlcv-label">Cao nhất</div>
+              <div id="m-high" class="ohlcv-val green"></div>
+            </div>
+            <div class="ohlcv-item">
+              <div class="ohlcv-label">Thấp nhất</div>
+              <div id="m-low" class="ohlcv-val red"></div>
+            </div>
+            <div class="ohlcv-item">
+              <div class="ohlcv-label">Đóng cửa</div>
+              <div id="m-close" class="ohlcv-val accent"></div>
+              <div id="m-pct" class="ohlcv-sub"></div>
+            </div>
+            <div class="ohlcv-item">
+              <div class="ohlcv-label">Volume</div>
+              <div id="m-volume" class="ohlcv-val"></div>
+              <div id="m-vol-avg" class="ohlcv-sub"></div>
+            </div>
           </div>
+        </div>
+
+        <!-- Metrics: HT / KC / R/R -->
+        <div class="metrics-grid">
           <div class="metric-card">
             <div class="metric-label">Hỗ trợ gần nhất</div>
             <div id="m-support" class="metric-value green"></div>
@@ -120,6 +153,11 @@
             <div class="metric-label">Risk / Reward</div>
             <div id="m-rr" class="metric-value"></div>
             <div id="m-rr-sub" class="metric-sub"></div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Vol / MA20</div>
+            <div id="m-volratio" class="metric-value"></div>
+            <div id="m-volratio-sub" class="metric-sub"></div>
           </div>
         </div>
 
@@ -202,6 +240,9 @@
               <thead>
                 <tr>
                   <th>Ngày</th>
+                  <th>Mở</th>
+                  <th>Cao</th>
+                  <th>Thấp</th>
                   <th>Đóng</th>
                   <th>%</th>
                   <th>Volume</th>
@@ -303,7 +344,7 @@
         <div class="info-list">
           <div class="info-row"><span>Phiên bản</span><span class="mono">1.0.0</span></div>
           <div class="info-row"><span>Backend</span><span id="info-api" class="mono">—</span></div>
-          <div class="info-row"><span>Dữ liệu</span><span>Yahoo Finance</span></div>
+          <div class="info-row"><span>Dữ liệu</span><span>vnstock (VCI) + yfinance</span></div>
           <div class="info-row"><span>Biểu đồ</span><span>TradingView LW Charts</span></div>
         </div>
       </div>

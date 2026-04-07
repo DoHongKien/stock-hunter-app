@@ -496,6 +496,50 @@ td.flat { color: var(--text-dim); }
   border-radius: var(--radius); margin-bottom: 10px;
 }
 
+/* ── COMPANY BAR (vnstock) ────────────────────────────────────── */
+.company-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 14px; gap: 10px;
+}
+.company-bar-left { flex: 1; min-width: 0; }
+.comp-name {
+  font-size: 14px; font-weight: 700; color: var(--text);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.comp-meta {
+  font-size: 10px; color: var(--text-dim); margin-top: 2px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.comp-source {
+  font-size: 9px; font-weight: 700; letter-spacing: 1px;
+  color: var(--accent); background: rgba(88,166,255,.1);
+  border: 1px solid rgba(88,166,255,.25); border-radius: 99px;
+  padding: 2px 8px; white-space: nowrap; flex-shrink: 0;
+}
+
+/* ── OHLCV CARD ────────────────────────────────────────────────── */
+.ohlcv-card { padding-bottom: 12px; }
+.ohlcv-row {
+  display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px;
+}
+.ohlcv-item { text-align: center; }
+.ohlcv-label {
+  font-size: 9px; color: var(--text-dim); font-weight: 600;
+  text-transform: uppercase; letter-spacing: .5px; margin-bottom: 4px;
+}
+.ohlcv-val {
+  font-size: 13px; font-weight: 700;
+  font-family: 'JetBrains Mono', monospace;
+}
+.ohlcv-sub {
+  font-size: 10px; margin-top: 2px;
+  font-family: 'JetBrains Mono', monospace;
+  color: var(--text-dim);
+}
+
+/* ── TABLE BOLD ────────────────────────────────────────────────── */
+td.bold { font-weight: 700; }
+
 /* ── SCROLLBAR ────────────────────────────────────────────────── */
 #main::-webkit-scrollbar { width: 3px; }
 #main::-webkit-scrollbar-track { background: transparent; }

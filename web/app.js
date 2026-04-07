@@ -160,14 +160,16 @@ async function doAnalyze() {
     if (dateFrom) params.set("date_from", dateFrom);
     if (dateTo)   params.set("date_to",   dateTo);
 
-    const [data, chartData] = await Promise.all([
+    const [data, chartData, companyData] = await Promise.all([
       apiFetch(`/api/analyze/${ticker}?${params}`),
       apiFetch(`/api/chart/${ticker}?${params}`),
+      apiFetch(`/api/company/${ticker}`).catch(() => null),
     ]);
 
     currentTicker = ticker;
     currentData   = data;
 
+    renderCompanyInfo(companyData, ticker);
     renderAnalysis(data);
     renderChart(chartData.candles, data);
 
@@ -197,6 +199,20 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("cfg-api").value = API_BASE;
 });
 
+// ── RENDER COMPANY INFO (từ vnstock) ────────────────────────────
+function renderCompanyInfo(info, ticker) {
+  const bar = document.getElementById("company-bar");
+  if (!bar) return;
+
+  const name = info && info.company_name ? info.company_name : ticker;
+  const parts = [];
+  if (info && info.exchange)  parts.push(info.exchange);
+  if (info && info.industry)  parts.push(info.industry);
+
+  document.getElementById("comp-name").textContent = name;
+  document.getElementById("comp-meta").textContent = parts.join(" · ") || "—";
+}
+
 // ── RENDER ANALYSIS ─────────────────────────────────────────────
 function renderAnalysis(d) {
   // Signal
@@ -215,17 +231,24 @@ function renderAnalysis(d) {
   document.getElementById("signal-name").textContent = d.signal;
   document.getElementById("signal-desc").textContent = sig.desc;
 
-  // Prices
-  setText("m-close", fmtPrice(d.close));
+  // OHLCV phiên gần nhất
+  setText("m-open",   fmtPrice(d.open));
+  setText("m-high",   fmtPrice(d.high));
+  setText("m-low",    fmtPrice(d.low));
+  setText("m-close",  fmtPrice(d.close));
+  setText("m-volume", fmtVol(d.volume));
+  setText("m-vol-avg", `TB20: ${fmtVol(d.avg_vol20)}`);
+
   // Pct change từ recent sessions
   const last2 = d.recent_sessions;
-  const pct = last2 && last2.length >= 2 ? last2[0].pct : null;
+  const pct = last2 && last2.length > 0 ? last2[0].pct : null;
   const pctEl = document.getElementById("m-pct");
   if (pct != null) {
     pctEl.textContent = fmtPct(pct);
-    pctEl.className = `metric-sub ${pct >= 0 ? "green" : "red"}`;
+    pctEl.className = `ohlcv-sub ${pct >= 0 ? "green" : "red"}`;
   }
 
+  // Metrics grid: HT / KC / R/R / Vol ratio
   setText("m-support", fmtPrice(d.support));
   const supPct = ((d.close - d.support) / d.support * 100).toFixed(2);
   setText("m-support-pct", `+${supPct}% từ HT`);
@@ -238,6 +261,13 @@ function renderAnalysis(d) {
   rrEl.textContent = `1:${d.rr_ratio.toFixed(2)}`;
   rrEl.className = `metric-value ${d.rr_ratio >= 2 ? "green" : d.rr_ratio >= 1 ? "gold" : "red"}`;
   setText("m-rr-sub", d.rr_ratio >= 2 ? "✅ Kèo thơm" : "⚠️ Chờ điểm tốt hơn");
+
+  const volRatioEl = document.getElementById("m-volratio");
+  if (volRatioEl) {
+    volRatioEl.textContent = `×${d.vol_ratio.toFixed(2)}`;
+    volRatioEl.className = `metric-value ${d.vol_surge ? "orange" : d.vol_ratio >= 0.8 ? "accent" : ""}`;
+  }
+  setText("m-volratio-sub", d.vol_surge ? "⚡ Đột biến" : "Bình thường");
 
   // Indicators
   // RSI
@@ -264,13 +294,15 @@ function renderAnalysis(d) {
   setText("bb-val", d.bollinger.pct_b.toFixed(2));
   document.getElementById("bb-val").className = `ind-val mono`;
 
-  // Volume ratio
-  const volR = d.vol_ratio * 50; // scale: 2x = full bar
+  // Volume ratio indicator bar
+  const volR = d.vol_ratio * 50;
   setBar("vol-bar", Math.min(volR, 100), 100,
     d.vol_surge ? "var(--orange)" : d.vol_ratio >= 0.8 ? "var(--accent)" : "var(--text-dim)");
   const volEl = document.getElementById("vol-val");
-  volEl.textContent = `×${d.vol_ratio.toFixed(2)}`;
-  volEl.className = `ind-val mono ${d.vol_surge ? "orange" : ""}`;
+  if (volEl) {
+    volEl.textContent = `×${d.vol_ratio.toFixed(2)}`;
+    volEl.className = `ind-val mono ${d.vol_surge ? "orange" : ""}`;
+  }
 
   // Plan
   setText("plan-entry",  fmtPrice(d.entry_zone));
@@ -282,7 +314,7 @@ function renderAnalysis(d) {
     : `⚠️ R/R = 1:${d.rr_ratio.toFixed(2)} — Chưa đạt chuẩn 1:2, nên chờ`;
   rrnote.style.color = d.rr_ratio >= 2 ? "var(--green)" : "var(--gold)";
 
-  // Sessions table
+  // Sessions table (OHLCV đầy đủ)
   const tbody = document.getElementById("sessions-body");
   tbody.innerHTML = "";
   (d.recent_sessions || []).slice(0, 15).forEach(s => {
@@ -292,7 +324,10 @@ function renderAnalysis(d) {
     const pctTxt = pct == null ? "—" : `${pct > 0 ? "▲" : pct < 0 ? "▼" : "→"} ${Math.abs(pct).toFixed(2)}%`;
     tr.innerHTML = `
       <td>${s.date}</td>
-      <td class="${cls}">${fmtPrice(s.close)}</td>
+      <td>${fmtPrice(s.open)}</td>
+      <td class="green">${fmtPrice(s.high)}</td>
+      <td class="red">${fmtPrice(s.low)}</td>
+      <td class="${cls} bold">${fmtPrice(s.close)}</td>
       <td class="${cls}">${pctTxt}</td>
       <td>${fmtVol(s.volume)}</td>
     `;

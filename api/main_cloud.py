@@ -10,10 +10,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-import yfinance as yf
 import pandas as pd
 import numpy as np
 import requests as http_requests
+
+# Data source: vnstock v3 (VCI) primary, yfinance fallback
+from api.data_fetcher import fetch_history, fetch_latest_price, fetch_latest_prices_batch
 
 from api.core import (
     analyze_support_resistance, is_hammer,
@@ -50,18 +52,8 @@ _WEB = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "web"))
 if os.path.exists(_WEB):
     app.mount("/app", StaticFiles(directory=_WEB, html=True), name="web")
 
-# ── PRICE CACHE (tránh rate-limit Yahoo Finance) ───────────────────────
-_price_cache: dict = {}   # {"VNM": {"price": 73.2, "ts": 1234567890}}
-CACHE_TTL = 300           # 5 phút
-
-def _cached_price(ticker: str) -> float | None:
-    entry = _price_cache.get(ticker)
-    if entry and (time.time() - entry["ts"]) < CACHE_TTL:
-        return entry["price"]
-    return None
-
-def _set_cache(ticker: str, price: float):
-    _price_cache[ticker] = {"price": price, "ts": time.time()}
+# Cache được quản lý trong data_fetcher.py (vnstock + yfinance fallback)
+# TTL: 15 phút cho history, 5 phút cho giá đơn lẻ
 
 # ── PORTFOLIO HELPERS ─────────────────────────────────────────────────
 def _load_pf():
@@ -78,19 +70,15 @@ def _save_pf(data):
     except Exception as e:
         print(f"[WARN] Could not save portfolio: {e}")
 
-# ── FETCH HISTORY ─────────────────────────────────────────────────────
-def _fetch(ticker, dt_from, dt_to):
-    sym  = f"{ticker}.VN" if not ticker.endswith(".VN") else ticker
-    hist = yf.Ticker(sym).history(
-        start=dt_from.strftime("%Y-%m-%d"),
-        end=(dt_to + timedelta(days=1)).strftime("%Y-%m-%d"),
-    )
-    if hist.empty:
-        raise HTTPException(404, f"Không có dữ liệu cho '{ticker}'")
-    # Strip timezone
-    if hasattr(hist.index, "tz") and hist.index.tz is not None:
-        hist.index = hist.index.tz_localize(None)
-    return hist
+# ── FETCH HISTORY ────────────────────────────────────────────────────
+def _get_hist(ticker: str, dt_from: datetime, dt_to: datetime):
+    """Wrapper tiện dụng: gọi fetch_history và raise 404 nếu không có dữ liệu."""
+    try:
+        return fetch_history(ticker, dt_from, dt_to)
+    except ValueError as e:
+        raise HTTPException(404, str(e))
+    except Exception as e:
+        raise HTTPException(500, f"Lỗi lấy dữ liệu: {e}")
 
 # ── TELEGRAM ──────────────────────────────────────────────────────────
 def _send_telegram(text):
@@ -127,7 +115,7 @@ def analyze(
     except ValueError:
         raise HTTPException(400, "Định dạng ngày sai — dùng DD/MM/YYYY")
 
-    hist = _fetch(raw, dt_from, dt_to)
+    hist = _get_hist(raw, dt_from, dt_to)
 
     close     = safe_float(hist["Close"].iloc[-1])
     open_last = safe_float(hist["Open"].iloc[-1])
@@ -221,7 +209,7 @@ def chart_data(
     dt_from = datetime.strptime(date_from, "%d/%m/%Y") if date_from else today - timedelta(days=182)
     dt_to   = datetime.strptime(date_to,   "%d/%m/%Y") if date_to   else today
 
-    hist = _fetch(raw, dt_from, dt_to)
+    hist = _get_hist(raw, dt_from, dt_to)
     candles = []
     for idx, row in hist.iterrows():
         try:    ts = int(pd.Timestamp(idx).timestamp())
@@ -239,75 +227,25 @@ def chart_data(
 
 @app.get("/api/price/{ticker}")
 def get_price(ticker: str):
-    """Lấy giá 1 mã (có cache 5 phút)."""
+    """Lấy giá 1 mã (cache 5 phút, vnstock primary → yfinance fallback)."""
     raw = ticker.upper().strip()
-    cached = _cached_price(raw)
-    if cached is not None:
-        return {"ticker": raw, "price": cached}
-    sym = f"{raw}.VN" if not raw.endswith(".VN") else raw
-    try:
-        hist = yf.Ticker(sym).history(period="5d")
-        if hist.empty:
-            raise HTTPException(404, f"Không có dữ liệu cho '{raw}'")
-        close = round(float(hist["Close"].iloc[-1]), 2)
-        _set_cache(raw, close)
-        return {"ticker": raw, "price": close}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(500, f"Lỗi: {e}")
+    price = fetch_latest_price(raw)
+    if price is None:
+        raise HTTPException(404, f"Không có dữ liệu cho '{raw}'")
+    return {"ticker": raw, "price": price}
 
 
 @app.get("/api/prices")
 def get_prices_batch(tickers: str = Query(..., description="Danh sách mã, cách nhau bằng dấu phẩy")):
     """
-    Lấy giá nhiều mã cùng lúc bằng yf.download() — 1 request duy nhất.
+    Lấy giá nhiều mã cùng lúc.
+    Dùng vnstock (VCI) làm primary, yfinance batch làm fallback.
     VD: /api/prices?tickers=VNM,VCB,HPG
     """
     raws = [t.strip().upper() for t in tickers.split(",") if t.strip()]
     if not raws:
         raise HTTPException(400, "Thiếu tham số tickers")
-
-    result: dict[str, float | None] = {}
-    need_fetch = []
-
-    # Kiểm tra cache trước
-    for raw in raws:
-        cached = _cached_price(raw)
-        if cached is not None:
-            result[raw] = cached
-        else:
-            need_fetch.append(raw)
-
-    if need_fetch:
-        syms = [f"{r}.VN" if not r.endswith(".VN") else r for r in need_fetch]
-        try:
-            df = yf.download(
-                syms if len(syms) > 1 else syms[0],
-                period="5d",
-                auto_adjust=True,
-                progress=False,
-            )
-            # yf.download trả MultiIndex khi >1 ticker
-            if len(syms) == 1:
-                close = round(float(df["Close"].iloc[-1]), 2) if not df.empty else None
-                result[need_fetch[0]] = close
-                if close: _set_cache(need_fetch[0], close)
-            else:
-                close_df = df["Close"] if "Close" in df.columns else df.xs("Close", axis=1, level=0)
-                for raw, sym in zip(need_fetch, syms):
-                    try:
-                        price = round(float(close_df[sym].dropna().iloc[-1]), 2)
-                        result[raw] = price
-                        _set_cache(raw, price)
-                    except Exception:
-                        result[raw] = None
-        except Exception as e:
-            print(f"[WARN] yf.download lỗi: {e}")
-            for raw in need_fetch:
-                result[raw] = None
-
-    return result
+    return fetch_latest_prices_batch(raws)
 
 
 @app.get("/api/portfolio")
@@ -349,21 +287,19 @@ def delete_portfolio(index: int):
 
 @app.get("/api/portfolio/refresh")
 def refresh_portfolio():
+    """Dùng batch fetch để giảm số lượng request xuống tối thiểu."""
     data = _load_pf()
+    if not data:
+        return []
+
+    tickers = [pos["ticker"] for pos in data]
+    prices  = fetch_latest_prices_batch(tickers)
+
     results = []
     for i, pos in enumerate(data):
-        sym = pos["ticker"]
-        try:
-            sym_yf = f"{sym}.VN" if not sym.endswith(".VN") else sym
-            h = yf.Ticker(sym_yf).history(period="5d")
-            if h.empty:
-                close, pnl = 0.0, None
-            else:
-                close = safe_float(h["Close"].iloc[-1])
-                pnl   = (close - pos["entry_price"]) / pos["entry_price"] * 100
-        except Exception:
-            close, pnl = 0.0, None
-
+        from api.core import safe_float
+        close = prices.get(pos["ticker"])
+        pnl   = (close - pos["entry_price"]) / pos["entry_price"] * 100 if close else None
         results.append({
             "index":         i,
             "ticker":        pos["ticker"],
@@ -371,7 +307,7 @@ def refresh_portfolio():
             "entry_price":   pos["entry_price"],
             "quantity":      pos["quantity"],
             "note":          pos.get("note", ""),
-            "current_price": round(close, 2),
+            "current_price": round(close, 2) if close else 0.0,
             "pnl_pct":       round(pnl, 2) if pnl is not None else None,
             "pnl_amount":    round((close - pos["entry_price"]) * pos["quantity"], 0) if pnl is not None else None,
         })
@@ -384,7 +320,7 @@ def send_telegram(ticker: str):
         raise HTTPException(400, "Chưa cấu hình Telegram (set env vars)")
     raw   = ticker.upper().strip()
     today = datetime.now()
-    hist  = _fetch(raw, today - timedelta(days=182), today)
+    hist  = _get_hist(raw, today - timedelta(days=182), today)
     sup, res, min_a, max_a = analyze_support_resistance(hist)
     close = safe_float(hist["Close"].iloc[-1])
     ht    = max([s for s in sup if s <= close], default=min_a)
