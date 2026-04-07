@@ -509,8 +509,17 @@ def send_telegram(ticker: str):
         ht    = max([s for s in sup if s <= close], default=min_a)
         kc    = min([r for r in res if r >= close], default=max_a)
         hammers = hist.apply(is_hammer, axis=1)
-        sessions_msg = generate_recent_sessions_message(raw, hist, 10)
-        plan_msg     = generate_trading_plan(raw, hist, ht, kc, hammers)
+
+        # Scale giá lên VNĐ đầy đủ trước khi format tin nhắn Telegram
+        hist_vnd = hist.copy()
+        for col in ["Open", "High", "Low", "Close"]:
+            if col in hist_vnd.columns:
+                hist_vnd[col] = hist_vnd[col] * _VND
+        ht_vnd = ht * _VND
+        kc_vnd = kc * _VND
+
+        sessions_msg = generate_recent_sessions_message(raw, hist_vnd, 10)
+        plan_msg     = generate_trading_plan(raw, hist_vnd, ht_vnd, kc_vnd, hammers)
         gui_tin_nhan_telegram(sessions_msg)
         gui_tin_nhan_telegram(plan_msg)
         return {"ok": True, "message": "Đã gửi Telegram thành công"}
