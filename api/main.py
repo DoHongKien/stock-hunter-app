@@ -54,6 +54,11 @@ PORTFOLIO_FILE = os.path.join(ROOT, "portfolio.json")
 
 # Cache được quản lý trong data_fetcher.py (vnstock VCI, TTL 15/5 phút)
 
+# vnstock VCI trả về giá theo đơn vị nghìn đồng (VD: 27.65 = 27.650 VNĐ).
+# Nhân với _VND trước khi trả về API để frontend nhận được VNĐ đầy đủ,
+# đảm bảo khớp với giá người dùng nhập trong danh mục.
+_VND = 1000
+
 app = FastAPI(title="Thợ Săn Điểm Vào API", version="1.0.0")
 
 # ── CORS — cho phép frontend truy cập ───────────────────────────────
@@ -259,10 +264,10 @@ def analyze(
         pct = _safe_float(row["pct_change"], None) if not pd.isna(row["pct_change"]) else None
         sessions.append({
             "date":   date_str,
-            "open":   round(_safe_float(row["Open"]),  2),
-            "high":   round(_safe_float(row["High"]),  2),
-            "low":    round(_safe_float(row["Low"]),   2),
-            "close":  round(_safe_float(row["Close"]), 2),
+            "open":   round(_safe_float(row["Open"])  * _VND),
+            "high":   round(_safe_float(row["High"])  * _VND),
+            "low":    round(_safe_float(row["Low"])   * _VND),
+            "close":  round(_safe_float(row["Close"]) * _VND),
             "volume": int(row["Volume"]),
             "pct":    round(pct, 2) if pct is not None else None,
         })
@@ -278,19 +283,19 @@ def analyze(
         "date_from": dt_from.strftime("%d/%m/%Y"),
         "date_to":   dt_to.strftime("%d/%m/%Y"),
         "sessions":  len(hist),
-        # Giá
-        "close":     round(close, 2),
-        "open":      round(open_last, 2),
-        "high":      round(high_last, 2),
-        "low":       round(low_last, 2),
+        # Giá (đã nhân _VND → VNĐ đầy đủ)
+        "close":     round(close    * _VND),
+        "open":      round(open_last* _VND),
+        "high":      round(high_last* _VND),
+        "low":       round(low_last * _VND),
         "volume":    vol_last,
         "avg_vol20": round(avg_vol, 0),
         "vol_ratio": round(vol_last / avg_vol, 2) if avg_vol else 0,
-        # HT/KC
-        "support":   round(ht, 2),
-        "resistance":round(kc, 2),
-        "support_levels":    [round(s, 2) for s in sorted(sup, reverse=True)],
-        "resistance_levels": [round(r, 2) for r in sorted(res)],
+        # HT/KC (đã nhân _VND)
+        "support":   round(ht * _VND),
+        "resistance":round(kc * _VND),
+        "support_levels":    [round(s * _VND) for s in sorted(sup, reverse=True)],
+        "resistance_levels": [round(r * _VND) for r in sorted(res)],
         # Tín hiệu
         "signal":       sig_name,
         "signal_color": sig_color,
@@ -298,12 +303,12 @@ def analyze(
         "at_resistance":at_res,
         "vol_surge":    vol_surge,
         "hammer":       hammer,
-        # Trading plan
-        "entry_zone":   round(ht, 2),
-        "stop_loss":    round(ht * 0.95, 2),
-        "take_profit":  round(kc * 0.98, 2),
+        # Trading plan (đã nhân _VND)
+        "entry_zone":   round(ht        * _VND),
+        "stop_loss":    round(ht * 0.95 * _VND),
+        "take_profit":  round(kc * 0.98 * _VND),
         "rr_ratio":     round(rr, 2),
-        # Chỉ số kỹ thuật
+        # Chỉ số kỹ thuật (RSI, MACD, BB không đổi đơn vị)
         "rsi":          rsi_val,
         "macd":         macd_data,
         "bollinger":    bb_data,
@@ -343,10 +348,10 @@ def chart_data(
             continue
         candles.append({
             "time":   ts,
-            "open":   round(_safe_float(row["Open"]),   2),
-            "high":   round(_safe_float(row["High"]),   2),
-            "low":    round(_safe_float(row["Low"]),    2),
-            "close":  round(_safe_float(row["Close"]),  2),
+            "open":   round(_safe_float(row["Open"])  * _VND),
+            "high":   round(_safe_float(row["High"])  * _VND),
+            "low":    round(_safe_float(row["Low"])   * _VND),
+            "close":  round(_safe_float(row["Close"]) * _VND),
             "volume": int(row["Volume"]),
         })
     return {"ticker": raw, "candles": candles}
@@ -402,7 +407,7 @@ def get_price(ticker: str):
     price = fetch_latest_price(raw)
     if price is None:
         raise HTTPException(404, f"Không có dữ liệu cho '{raw}'")
-    return {"ticker": raw, "price": price}
+    return {"ticker": raw, "price": round(price * _VND)}
 
 
 @app.get("/api/prices")
@@ -415,7 +420,8 @@ def get_prices_batch(tickers: str = Query(..., description="Danh sách mã, các
     raws = [t.strip().upper() for t in tickers.split(",") if t.strip()]
     if not raws:
         raise HTTPException(400, "Thiếu tham số tickers")
-    return fetch_latest_prices_batch(raws)
+    raw_prices = fetch_latest_prices_batch(raws)
+    return {k: round(v * _VND) if v is not None else None for k, v in raw_prices.items()}
 
 
 # ── 5. PORTFOLIO CRUD ──────────────────────────────────────────────
@@ -470,8 +476,9 @@ def refresh_portfolio():
 
     results = []
     for i, pos in enumerate(data):
-        close = prices.get(pos["ticker"])
-        pnl   = (close - pos["entry_price"]) / pos["entry_price"] * 100 if close else None
+        raw_price = prices.get(pos["ticker"])
+        close_vnd = round(raw_price * _VND) if raw_price is not None else None
+        pnl = (close_vnd - pos["entry_price"]) / pos["entry_price"] * 100 if close_vnd else None
         results.append({
             "index":         i,
             "ticker":        pos["ticker"],
@@ -479,9 +486,9 @@ def refresh_portfolio():
             "entry_price":   pos["entry_price"],
             "quantity":      pos["quantity"],
             "note":          pos.get("note", ""),
-            "current_price": round(close, 2) if close else 0.0,
+            "current_price": close_vnd or 0,
             "pnl_pct":       round(pnl, 2) if pnl is not None else None,
-            "pnl_amount":    round((close - pos["entry_price"]) * pos["quantity"], 0) if pnl is not None else None,
+            "pnl_amount":    round((close_vnd - pos["entry_price"]) * pos["quantity"]) if pnl is not None else None,
         })
     return results
 
