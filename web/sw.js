@@ -1,6 +1,6 @@
 // Service Worker — Cache shell for offline support
-const CACHE_NAME = "stock-hunter-v1";
-const SHELL = ["/app/", "/app/index.html", "/app/manifest.json"];
+const CACHE_NAME = "stock-hunter-v3";
+const SHELL = ["/app/", "/app/index.html", "/app/app.js", "/app/style.css", "/app/manifest.json"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(

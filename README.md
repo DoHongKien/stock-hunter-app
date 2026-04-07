@@ -79,4 +79,4 @@ python -m uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
 
 - Server phải **đang chạy** thì điện thoại mới dùng được
 - Nếu muốn dùng 24/7 từ bất kỳ đâu, cần deploy lên VPS (Render, Railway, v.v.)
-- Dữ liệu cổ phiếu lấy từ Yahoo Finance (có thể delay ~15 phút)
+- Dữ liệu cổ phiếu lấy từ vnstock (VCI) — dữ liệu HOSE/HNX chính thức

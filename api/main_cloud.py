@@ -14,7 +14,7 @@ import pandas as pd
 import numpy as np
 import requests as http_requests
 
-# Data source: vnstock v3 (VCI) primary, yfinance fallback
+# Data source: vnstock v3 (VCI)
 from api.data_fetcher import fetch_history, fetch_latest_price, fetch_latest_prices_batch
 
 from api.core import (
@@ -52,7 +52,7 @@ _WEB = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "web"))
 if os.path.exists(_WEB):
     app.mount("/app", StaticFiles(directory=_WEB, html=True), name="web")
 
-# Cache được quản lý trong data_fetcher.py (vnstock + yfinance fallback)
+# Cache được quản lý trong data_fetcher.py (vnstock VCI, TTL 15/5 phút)
 # TTL: 15 phút cho history, 5 phút cho giá đơn lẻ
 
 # ── PORTFOLIO HELPERS ─────────────────────────────────────────────────
@@ -227,7 +227,7 @@ def chart_data(
 
 @app.get("/api/price/{ticker}")
 def get_price(ticker: str):
-    """Lấy giá 1 mã (cache 5 phút, vnstock primary → yfinance fallback)."""
+    """Lấy giá 1 mã (cache 5 phút, vnstock VCI)."""
     raw = ticker.upper().strip()
     price = fetch_latest_price(raw)
     if price is None:
@@ -239,7 +239,7 @@ def get_price(ticker: str):
 def get_prices_batch(tickers: str = Query(..., description="Danh sách mã, cách nhau bằng dấu phẩy")):
     """
     Lấy giá nhiều mã cùng lúc.
-    Dùng vnstock (VCI) làm primary, yfinance batch làm fallback.
+    Dùng vnstock (VCI) để lấy giá hàng loạt.
     VD: /api/prices?tickers=VNM,VCB,HPG
     """
     raws = [t.strip().upper() for t in tickers.split(",") if t.strip()]

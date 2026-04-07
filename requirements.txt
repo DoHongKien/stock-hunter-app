@@ -1,9 +1,7 @@
 fastapi==0.115.12
 uvicorn[standard]==0.34.0
-# Primary data source: TCBS API (không bị rate-limit như Yahoo Finance)
-vnstock>=3.0.0
-# Fallback data source
-yfinance==0.2.55
+# vnstock v3 (VCI source) — dữ liệu HOSE/HNX chính thức, yêu cầu >=3.4.0
+vnstock>=3.4.0
 pandas>=2.0.0
 numpy>=1.24.0
 requests

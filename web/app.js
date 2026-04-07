@@ -97,7 +97,10 @@ function initDates() {
 // ── FORMAT HELPERS ───────────────────────────────────────────────
 function fmtPrice(v) {
   if (v == null || isNaN(v)) return "—";
-  return new Intl.NumberFormat("vi-VN").format(Math.round(v));
+  return new Intl.NumberFormat("vi-VN", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  }).format(parseFloat(v));
 }
 function fmtPct(v, force=false) {
   if (v == null || isNaN(v)) return "—";
